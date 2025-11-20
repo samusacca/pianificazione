@@ -4,13 +4,70 @@ import plotly.express as px
 from datetime import datetime, timedelta, time
 import numpy as np
 import io
+import requests
 
 st.set_page_config(page_title="Pianificazione Produzione", layout="wide")
 
 st.title("📅 Pianificazione Produzione - Gantt Interattivo")
 
 st.sidebar.header("⚙️ Impostazioni")
-file_path = st.sidebar.file_uploader("Carica file Excel con i dati di produzione", type=["xlsx"])
+
+# --- Opzioni di caricamento file ---
+caricamento_tipo = st.sidebar.radio(
+    "Modalità caricamento dati:",
+    ["📤 Carica file manualmente", "☁️ Google Drive (auto-aggiornamento)"]
+)
+
+file_data = None
+
+if caricamento_tipo == "📤 Carica file manualmente":
+    file_path = st.sidebar.file_uploader("Carica file Excel", type=["xlsx"])
+    if file_path:
+        file_data = file_path
+else:
+    st.sidebar.markdown("### Configurazione Google Drive")
+    st.sidebar.markdown("""
+    **Come ottenere il link:**
+    1. Apri il file Excel in Google Drive
+    2. Clicca "Condividi" → "Chiunque abbia il link"
+    3. Copia l'ID del file dall'URL
+    
+    Esempio URL: `https://drive.google.com/file/d/ABC123XYZ/view`
+    
+    L'ID è: `ABC123XYZ`
+    """)
+    
+    gdrive_file_id = st.sidebar.text_input(
+        "ID file Google Drive:",
+        placeholder="Incolla qui l'ID del file"
+    )
+    
+    auto_refresh = st.sidebar.checkbox("🔄 Auto-aggiornamento ogni 5 minuti", value=False)
+    
+    if auto_refresh:
+        st.sidebar.info("La pagina si aggiornerà automaticamente")
+        st_autorefresh = st.sidebar.empty()
+        # Auto-refresh ogni 5 minuti (300000 ms)
+        st_autorefresh.markdown(
+            '<meta http-equiv="refresh" content="300">',
+            unsafe_allow_html=True
+        )
+    
+    if gdrive_file_id:
+        try:
+            with st.spinner("⏳ Caricamento da Google Drive..."):
+                # Costruisci URL di download diretto
+                download_url = f"https://drive.google.com/uc?export=download&id={gdrive_file_id}"
+                response = requests.get(download_url)
+                
+                if response.status_code == 200:
+                    file_data = io.BytesIO(response.content)
+                    st.sidebar.success("✅ File caricato da Google Drive")
+                    st.sidebar.caption(f"Ultimo aggiornamento: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+                else:
+                    st.sidebar.error("❌ Errore nel caricamento. Verifica che il file sia condiviso pubblicamente.")
+        except Exception as e:
+            st.sidebar.error(f"❌ Errore: {str(e)}")
 
 # --- Parametri orari ---
 ORE_GIORNALIERE = 9
@@ -60,10 +117,10 @@ def get_ordine_operazione(operazione):
     for key, value in ORDINE_OPERAZIONI.items():
         if key in operazione_lower:
             return value
-    return 10  # Operazioni non specificate vengono dopo tornitura ma prima delle sconosciute
+    return 10
 
-if file_path:
-    df = pd.read_excel(file_path)
+if file_data:
+    df = pd.read_excel(file_data)
 
     # --- Gestione colonne Dipendenza e Priorità ---
     if "Dipendenza" not in df.columns:
@@ -71,7 +128,7 @@ if file_path:
     df["Dipendenza"] = df["Dipendenza"].fillna("").astype(str)
     
     if "Priorità" not in df.columns:
-        df["Priorità"] = 5  # Priorità media di default
+        df["Priorità"] = 5
     df["Priorità"] = pd.to_numeric(df["Priorità"], errors="coerce").fillna(5)
 
     # --- Conversione colonne tempo ---
@@ -84,7 +141,6 @@ if file_path:
     df["_ordine_operazione"] = df["Operazione"].apply(get_ordine_operazione)
 
     # --- Ordinamento del DataFrame ---
-    # Prima per priorità (più bassa = più urgente), poi per codice pezzo, poi per tipo operazione
     df = df.sort_values(
         by=["Priorità", "Codice pezzo", "_ordine_operazione"],
         ascending=[True, True, True]
@@ -93,7 +149,6 @@ if file_path:
     st.subheader("📋 Dati di produzione ordinati")
     st.caption("Le operazioni sono ordinate per: Priorità → Codice pezzo → Tipo operazione (tornitura → fresatura/foratura)")
     
-    # Mostra il dataframe senza la colonna temporanea di ordinamento
     df_display = df.drop(columns=["_ordine_operazione"])
     st.dataframe(df_display)
 
@@ -152,7 +207,6 @@ if file_path:
     st.subheader("📈 Gantt interattivo")
     st.caption("Puoi modificare manualmente le date nelle celle qui sotto, poi aggiornare il grafico.")
 
-    # Permette di editare le date
     gantt_df_edit = st.data_editor(
         gantt_df,
         column_config={
@@ -226,9 +280,21 @@ if file_path:
     )
 
 else:
-    st.info("📂 Carica un file Excel per visualizzare il Gantt.")
+    st.info("📂 Seleziona una modalità di caricamento nella barra laterale")
     st.markdown("""
-    Il file deve contenere almeno queste colonne:
+    ## Due modalità disponibili:
+    
+    ### 📤 Caricamento manuale
+    - Carica il file Excel ogni volta che vuoi aggiornare i dati
+    
+    ### ☁️ Google Drive (Consigliato)
+    - Collega il tuo file Excel da Google Drive
+    - I dati si aggiornano automaticamente
+    - Accessibile da qualsiasi dispositivo
+    
+    ---
+    
+    Il file Excel deve contenere queste colonne:
     - **Commessa**
     - **Codice pezzo**
     - **Operazione**
@@ -237,11 +303,6 @@ else:
     - **Tempo unitario (h)**
     - **Setup (h)**
     - **Data richiesta**
-    - **Dipendenza** (può essere vuota)
-    - **Priorità** (opzionale, valore numerico: 1=massima urgenza, valori più alti=meno urgente)
-    
-    ### Note sull'ordinamento:
-    - Le operazioni vengono ordinate prima per **priorità** (valori più bassi = più urgenti)
-    - A parità di priorità, per **codice pezzo**
-    - Per lo stesso codice pezzo: **tornitura** → **fresatura/foratura** → altre operazioni
+    - **Dipendenza** (opzionale)
+    - **Priorità** (opzionale, 1=massima urgenza)
     """)
