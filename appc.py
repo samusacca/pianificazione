@@ -12,42 +12,60 @@ st.title("📅 Pianificazione Produzione - Gantt Interattivo")
 
 st.sidebar.header("⚙️ Impostazioni")
 
+# --- Caricamento ID Google Drive dai secrets ---
+try:
+    gdrive_file_id_default = st.secrets.get("GDRIVE_FILE_ID", "")
+except:
+    gdrive_file_id_default = ""
+
 # --- Opzioni di caricamento file ---
 caricamento_tipo = st.sidebar.radio(
     "Modalità caricamento dati:",
-    ["📤 Carica file manualmente", "☁️ Google Drive (auto-aggiornamento)"]
+    ["☁️ Google Drive (auto-aggiornamento)", "📤 Carica file manualmente"]
 )
 
 file_data = None
 
-if caricamento_tipo == "📤 Carica file manualmente":
-    file_path = st.sidebar.file_uploader("Carica file Excel", type=["xlsx"])
-    if file_path:
-        file_data = file_path
-else:
+if caricamento_tipo == "☁️ Google Drive (auto-aggiornamento)":
     st.sidebar.markdown("### Configurazione Google Drive")
-    st.sidebar.markdown("""
-    **Come ottenere il link:**
-    1. Apri il file Excel in Google Drive
-    2. Clicca "Condividi" → "Chiunque abbia il link"
-    3. Copia l'ID del file dall'URL
     
-    Esempio URL: `https://drive.google.com/file/d/ABC123XYZ/view`
+    if gdrive_file_id_default:
+        st.sidebar.success("✅ ID Google Drive configurato!")
+        usa_id_salvato = st.sidebar.checkbox("Usa ID salvato", value=True)
+    else:
+        usa_id_salvato = False
+        st.sidebar.info("💡 Configura l'ID nei Secrets per non doverlo inserire ogni volta")
     
-    L'ID è: `ABC123XYZ`
-    """)
-    
-    gdrive_file_id = st.sidebar.text_input(
-        "ID file Google Drive:",
-        placeholder="Incolla qui l'ID del file"
-    )
+    if usa_id_salvato and gdrive_file_id_default:
+        gdrive_file_id = gdrive_file_id_default
+        st.sidebar.text_input(
+            "ID file Google Drive (salvato):",
+            value=gdrive_file_id[:20] + "..." if len(gdrive_file_id) > 20 else gdrive_file_id,
+            disabled=True
+        )
+    else:
+        st.sidebar.markdown("""
+        **Come ottenere il link:**
+        1. Apri il file Excel in Google Drive
+        2. Clicca "Condividi" → "Chiunque abbia il link"
+        3. Copia l'ID del file dall'URL
+        
+        Esempio URL: `https://drive.google.com/file/d/ABC123XYZ/view`
+        
+        L'ID è: `ABC123XYZ`
+        """)
+        
+        gdrive_file_id = st.sidebar.text_input(
+            "ID file Google Drive:",
+            value=gdrive_file_id_default,
+            placeholder="Incolla qui l'ID del file"
+        )
     
     auto_refresh = st.sidebar.checkbox("🔄 Auto-aggiornamento ogni 5 minuti", value=False)
     
     if auto_refresh:
         st.sidebar.info("La pagina si aggiornerà automaticamente")
         st_autorefresh = st.sidebar.empty()
-        # Auto-refresh ogni 5 minuti (300000 ms)
         st_autorefresh.markdown(
             '<meta http-equiv="refresh" content="300">',
             unsafe_allow_html=True
@@ -56,7 +74,6 @@ else:
     if gdrive_file_id:
         try:
             with st.spinner("⏳ Caricamento da Google Drive..."):
-                # Costruisci URL di download diretto
                 download_url = f"https://drive.google.com/uc?export=download&id={gdrive_file_id}"
                 response = requests.get(download_url)
                 
@@ -68,6 +85,11 @@ else:
                     st.sidebar.error("❌ Errore nel caricamento. Verifica che il file sia condiviso pubblicamente.")
         except Exception as e:
             st.sidebar.error(f"❌ Errore: {str(e)}")
+
+else:
+    file_path = st.sidebar.file_uploader("Carica file Excel", type=["xlsx"])
+    if file_path:
+        file_data = file_path
 
 # --- Parametri orari ---
 ORE_GIORNALIERE = 9
@@ -281,17 +303,40 @@ if file_data:
 
 else:
     st.info("📂 Seleziona una modalità di caricamento nella barra laterale")
+    
+    if not gdrive_file_id_default and caricamento_tipo == "☁️ Google Drive (auto-aggiornamento)":
+        st.warning("⚠️ ID Google Drive non configurato. Segui le istruzioni qui sotto:")
+        
+        st.markdown("""
+        ## 🔧 Come configurare l'ID Google Drive permanentemente
+        
+        ### Su Streamlit Cloud:
+        1. Vai sulla tua app su [share.streamlit.io](https://share.streamlit.io)
+        2. Clicca sui **tre puntini** ⋮ accanto alla tua app
+        3. Seleziona **"Settings"**
+        4. Vai sulla sezione **"Secrets"**
+        5. Incolla questo codice (sostituisci con il TUO ID):
+        
+        ```toml
+        GDRIVE_FILE_ID = "il-tuo-id-google-drive-qui"
+        ```
+        
+        6. Clicca **"Save"**
+        7. L'app si riavvierà automaticamente
+        
+        ### In locale (sul tuo PC):
+        1. Crea una cartella `.streamlit` nella stessa cartella di `app.py`
+        2. Dentro `.streamlit`, crea un file chiamato `secrets.toml`
+        3. Scrivi dentro:
+        
+        ```toml
+        GDRIVE_FILE_ID = "il-tuo-id-google-drive-qui"
+        ```
+        
+        4. Salva e riavvia l'app
+        """)
+    
     st.markdown("""
-    ## Due modalità disponibili:
-    
-    ### 📤 Caricamento manuale
-    - Carica il file Excel ogni volta che vuoi aggiornare i dati
-    
-    ### ☁️ Google Drive (Consigliato)
-    - Collega il tuo file Excel da Google Drive
-    - I dati si aggiornano automaticamente
-    - Accessibile da qualsiasi dispositivo
-    
     ---
     
     Il file Excel deve contenere queste colonne:
