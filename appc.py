@@ -172,7 +172,7 @@ if file_data:
     st.caption("Le operazioni sono ordinate per: Priorità → Codice pezzo → Tipo operazione (tornitura → fresatura/foratura)")
     
     df_display = df.drop(columns=["_ordine_operazione"])
-    st.dataframe(df_display)
+    st.dataframe(df_display, use_container_width=True)
 
     st.subheader("📊 Generazione automatica del Gantt")
 
@@ -226,7 +226,45 @@ if file_data:
 
     gantt_df = pd.DataFrame(pianificazione)
 
+    # --- Calcolo ritardi rispetto alla data richiesta ---
+    # Mappa per collegare ogni operazione alla sua data richiesta
+    data_richiesta_map = df.set_index("Codice pezzo")["Data richiesta"].to_dict()
+    
+    gantt_df["Data richiesta"] = gantt_df["Codice pezzo"].map(data_richiesta_map)
+    
+    # Calcola il ritardo in giorni (solo giorni lavorativi)
+    def calcola_ritardo_giorni(row):
+        if pd.isna(row["Data richiesta"]):
+            return 0
+        
+        fine = row["Fine"].date() if isinstance(row["Fine"], datetime) else row["Fine"]
+        richiesta = row["Data richiesta"].date() if isinstance(row["Data richiesta"], datetime) else row["Data richiesta"]
+        
+        if fine <= richiesta:
+            return 0
+        
+        # Conta solo i giorni lavorativi (esclude weekend)
+        giorni_ritardo = 0
+        current_date = richiesta + timedelta(days=1)
+        while current_date <= fine:
+            if current_date.weekday() < 5:  # Lunedì=0, Venerdì=4
+                giorni_ritardo += 1
+            current_date += timedelta(days=1)
+        
+        return giorni_ritardo
+    
+    gantt_df["Ritardo (giorni)"] = gantt_df.apply(calcola_ritardo_giorni, axis=1)
+    gantt_df["In ritardo"] = gantt_df["Ritardo (giorni)"] > 0
+
     st.subheader("📈 Gantt interattivo")
+    
+    # Mostra statistiche ritardi
+    num_ritardi = gantt_df["In ritardo"].sum()
+    if num_ritardi > 0:
+        st.warning(f"⚠️ {num_ritardi} operazioni in ritardo!")
+    else:
+        st.success("✅ Nessuna operazione in ritardo")
+    
     st.caption("Puoi modificare manualmente le date nelle celle qui sotto, poi aggiornare il grafico.")
 
     gantt_df_edit = st.data_editor(
@@ -281,7 +319,7 @@ if file_data:
 
     # --- Statistiche di riepilogo ---
     st.subheader("📊 Statistiche di pianificazione")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("Operazioni totali", len(gantt_df_edit))
@@ -290,6 +328,24 @@ if file_data:
         st.metric("Durata pianificazione (giorni)", durata_totale)
     with col3:
         st.metric("Macchine coinvolte", gantt_df_edit["Macchina"].nunique())
+    with col4:
+        num_ritardi = int(gantt_df_edit["In ritardo"].sum())
+        ritardo_medio = gantt_df_edit[gantt_df_edit["In ritardo"]]["Ritardo (giorni)"].mean() if num_ritardi > 0 else 0
+        st.metric(
+            "Operazioni in ritardo", 
+            num_ritardi,
+            delta=f"-{ritardo_medio:.1f} gg medi" if num_ritardi > 0 else "Nessun ritardo",
+            delta_color="inverse"
+        )
+    
+    # Tabella dettaglio ritardi
+    if num_ritardi > 0:
+        st.subheader("⚠️ Dettaglio operazioni in ritardo")
+        ritardi_df = gantt_df_edit[gantt_df_edit["In ritardo"]].sort_values("Ritardo (giorni)", ascending=False)
+        st.dataframe(
+            ritardi_df[["Commessa", "Codice pezzo", "Operazione", "Macchina", "Data richiesta", "Fine", "Ritardo (giorni)"]],
+            use_container_width=True
+        )
 
     # Esportazione Excel aggiornata
     output = io.BytesIO()
