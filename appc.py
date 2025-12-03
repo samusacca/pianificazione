@@ -406,4 +406,3 @@ else:
     - **Data richiesta**
     - **Dipendenza** (opzionale)
     - **Priorità** (opzionale, 1=massima urgenza)
-    """)
