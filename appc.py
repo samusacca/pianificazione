@@ -356,6 +356,292 @@ if file_data:
         file_name="pianificazione_aggiornata.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    
+    # --- SEZIONE LISTE DI LAVORO PER MACCHINA ---
+    st.markdown("---")
+    st.subheader("🖨️ Liste di lavoro per macchina")
+    st.caption("Genera e stampa le liste di lavoro da consegnare agli operatori")
+    
+    # Selezione macchine
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_left:
+        macchine_disponibili = sorted(gantt_df_edit["Macchina"].unique())
+        macchine_selezionate = st.multiselect(
+            "Seleziona le macchine per cui generare le liste:",
+            options=macchine_disponibili,
+            default=macchine_disponibili
+        )
+    
+    with col_right:
+        formato_data = st.selectbox(
+            "Formato data:",
+            ["GG/MM/AAAA", "GG/MM/AAAA HH:MM", "Completo"]
+        )
+    
+    if macchine_selezionate:
+        # Opzioni di visualizzazione
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            mostra_priorita = st.checkbox("Mostra priorità", value=True)
+        with col2:
+            mostra_tempi = st.checkbox("Mostra tempi", value=True)
+        with col3:
+            mostra_ritardi = st.checkbox("Evidenzia ritardi", value=True)
+        
+        # Genera le liste per ogni macchina
+        for macchina in macchine_selezionate:
+            lavori_macchina = gantt_df_edit[gantt_df_edit["Macchina"] == macchina].copy()
+            lavori_macchina = lavori_macchina.sort_values("Inizio")
+            
+            st.markdown(f"### 🔧 {macchina}")
+            
+            # Statistiche macchina
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            with col_stat1:
+                st.metric("Operazioni", len(lavori_macchina))
+            with col_stat2:
+                ritardi_macchina = lavori_macchina["In ritardo"].sum()
+                st.metric("In ritardo", int(ritardi_macchina))
+            with col_stat3:
+                if len(lavori_macchina) > 0:
+                    inizio_primo = lavori_macchina["Inizio"].min()
+                    fine_ultimo = lavori_macchina["Fine"].max()
+                    durata = (fine_ultimo - inizio_primo).days
+                    st.metric("Durata totale", f"{durata} giorni")
+            
+            # Prepara tabella stampabile
+            colonne_stampa = ["Commessa", "Codice pezzo", "Operazione"]
+            
+            if mostra_priorita:
+                colonne_stampa.append("Priorità")
+            
+            # Formattazione date
+            lavori_macchina["Inizio_formattato"] = lavori_macchina["Inizio"].apply(
+                lambda x: x.strftime("%d/%m/%Y") if formato_data == "GG/MM/AAAA" 
+                else (x.strftime("%d/%m/%Y %H:%M") if formato_data == "GG/MM/AAAA HH:MM"
+                else x.strftime("%A %d/%m/%Y alle %H:%M"))
+            )
+            lavori_macchina["Fine_formattato"] = lavori_macchina["Fine"].apply(
+                lambda x: x.strftime("%d/%m/%Y") if formato_data == "GG/MM/AAAA" 
+                else (x.strftime("%d/%m/%Y %H:%M") if formato_data == "GG/MM/AAAA HH:MM"
+                else x.strftime("%A %d/%m/%Y alle %H:%M"))
+            )
+            
+            colonne_stampa.extend(["Inizio_formattato", "Fine_formattato"])
+            
+            if mostra_tempi:
+                lavori_macchina["Durata (ore)"] = (
+                    (lavori_macchina["Fine"] - lavori_macchina["Inizio"]).dt.total_seconds() / 3600
+                ).round(1)
+                colonne_stampa.append("Durata (ore)")
+            
+            if mostra_ritardi:
+                colonne_stampa.extend(["Ritardo (giorni)", "In ritardo"])
+            
+            # Rinomina colonne per stampa
+            lavori_stampa = lavori_macchina[colonne_stampa].copy()
+            lavori_stampa = lavori_stampa.rename(columns={
+                "Inizio_formattato": "Inizio",
+                "Fine_formattato": "Fine"
+            })
+            
+            # Mostra tabella con stile
+            if mostra_ritardi:
+                def highlight_ritardi_stampa(row):
+                    if row.get("In ritardo", False):
+                        return ['background-color: #ffcccc'] * len(row)
+                    return [''] * len(row)
+                
+                st.dataframe(
+                    lavori_stampa.style.apply(highlight_ritardi_stampa, axis=1),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.dataframe(lavori_stampa, use_container_width=True, hide_index=True)
+            
+            # Genera HTML per stampa
+            html_content = f"""
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    @page {{
+                        size: A4;
+                        margin: 1cm;
+                    }}
+                    body {{
+                        font-family: Arial, sans-serif;
+                        margin: 20px;
+                    }}
+                    h1 {{
+                        color: #2c3e50;
+                        border-bottom: 3px solid #3498db;
+                        padding-bottom: 10px;
+                    }}
+                    .info {{
+                        background-color: #ecf0f1;
+                        padding: 15px;
+                        border-radius: 5px;
+                        margin-bottom: 20px;
+                    }}
+                    table {{
+                        width: 100%;
+                        border-collapse: collapse;
+                        margin-top: 20px;
+                    }}
+                    th {{
+                        background-color: #3498db;
+                        color: white;
+                        padding: 12px;
+                        text-align: left;
+                        font-weight: bold;
+                    }}
+                    td {{
+                        padding: 10px;
+                        border-bottom: 1px solid #ddd;
+                    }}
+                    tr:nth-child(even) {{
+                        background-color: #f9f9f9;
+                    }}
+                    tr:hover {{
+                        background-color: #f5f5f5;
+                    }}
+                    .ritardo {{
+                        background-color: #ffcccc !important;
+                    }}
+                    .footer {{
+                        margin-top: 30px;
+                        text-align: center;
+                        color: #7f8c8d;
+                        font-size: 12px;
+                    }}
+                    @media print {{
+                        .no-print {{
+                            display: none;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <h1>📋 Lista Lavori - {macchina}</h1>
+                <div class="info">
+                    <p><strong>Data generazione:</strong> {datetime.now().strftime('%d/%m/%Y alle %H:%M')}</p>
+                    <p><strong>Numero operazioni:</strong> {len(lavori_macchina)}</p>
+                    <p><strong>Operazioni in ritardo:</strong> {int(ritardi_macchina)}</p>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+            """
+            
+            # Aggiungi intestazioni
+            for col in lavori_stampa.columns:
+                html_content += f"<th>{col}</th>"
+            
+            html_content += """
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            
+            # Aggiungi righe
+            for idx, row in lavori_stampa.iterrows():
+                classe_ritardo = ' class="ritardo"' if mostra_ritardi and row.get("In ritardo", False) else ''
+                html_content += f"<tr{classe_ritardo}>"
+                for col in lavori_stampa.columns:
+                    valore = row[col]
+                    if col == "In ritardo":
+                        valore = "✓ SÌ" if valore else "No"
+                    html_content += f"<td>{valore}</td>"
+                html_content += "</tr>"
+            
+            html_content += """
+                    </tbody>
+                </table>
+                <div class="footer">
+                    <p>Sistema di Pianificazione Produzione</p>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Bottoni per download e stampa
+            col_btn1, col_btn2, col_btn3 = st.columns(3)
+            
+            with col_btn1:
+                st.download_button(
+                    label=f"📄 Scarica HTML - {macchina}",
+                    data=html_content,
+                    file_name=f"lista_lavori_{macchina.replace(' ', '_')}.html",
+                    mime="text/html",
+                    key=f"html_{macchina}"
+                )
+            
+            with col_btn2:
+                # Excel per questa macchina
+                output_macchina = io.BytesIO()
+                lavori_stampa.to_excel(output_macchina, index=False, engine="openpyxl")
+                st.download_button(
+                    label=f"📊 Scarica Excel - {macchina}",
+                    data=output_macchina.getvalue(),
+                    file_name=f"lista_lavori_{macchina.replace(' ', '_')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"excel_{macchina}"
+                )
+            
+            with col_btn3:
+                st.markdown(f"""
+                <a href="data:text/html;charset=utf-8,{html_content.replace('#', '%23')}" 
+                   download="lista_lavori_{macchina.replace(' ', '_')}.html" 
+                   target="_blank">
+                    <button style="
+                        background-color: #2ecc71;
+                        color: white;
+                        padding: 0.5rem 1rem;
+                        border: none;
+                        border-radius: 0.25rem;
+                        cursor: pointer;
+                        font-size: 14px;
+                    ">
+                        🖨️ Apri per stampare
+                    </button>
+                </a>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+        
+        # Bottone per scaricare tutte le liste in un unico file Excel
+        st.subheader("📦 Download multiplo")
+        
+        output_multiplo = io.BytesIO()
+        with pd.ExcelWriter(output_multiplo, engine='openpyxl') as writer:
+            for macchina in macchine_selezionate:
+                lavori_macchina = gantt_df_edit[gantt_df_edit["Macchina"] == macchina].copy()
+                lavori_macchina = lavori_macchina.sort_values("Inizio")
+                
+                colonne_export = ["Commessa", "Codice pezzo", "Operazione", "Inizio", "Fine"]
+                if mostra_priorita:
+                    colonne_export.insert(3, "Priorità")
+                if mostra_ritardi:
+                    colonne_export.extend(["Ritardo (giorni)", "In ritardo"])
+                
+                lavori_macchina[colonne_export].to_excel(
+                    writer, 
+                    sheet_name=macchina[:31],  # Excel limita i nomi a 31 caratteri
+                    index=False
+                )
+        
+        st.download_button(
+            label="📥 Scarica tutte le liste (Excel multi-foglio)",
+            data=output_multiplo.getvalue(),
+            file_name=f"liste_lavoro_tutte_macchine_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    
+    else:
+        st.info("👆 Seleziona almeno una macchina per generare le liste di lavoro")
 
 else:
     st.info("📂 Seleziona una modalità di caricamento nella barra laterale")
