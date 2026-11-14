@@ -74,7 +74,7 @@ if caricamento_tipo == "☁️ Google Drive (auto-aggiornamento)":
     if gdrive_file_id:
         try:
             with st.spinner("⏳ Caricamento da Google Drive..."):
-                download_url = f"https://drive.google.com/uc?export=download&id={gdrive_file_id}"
+               download_url = f"https://docs.google.com/spreadsheets/d/{gdrive_file_id}/export?format=xlsx"
                 response = requests.get(download_url)
                 
                 if response.status_code == 200:
